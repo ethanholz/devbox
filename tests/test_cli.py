@@ -15,6 +15,7 @@ def test_cli_help():
     assert result.exit_code == 0
     assert "DevBox - AWS EC2 Development Environment Manager" in result.output
     assert "launch" in result.output
+    assert "mcp" in result.output
     assert "status" in result.output
     assert "terminate" in result.output
 

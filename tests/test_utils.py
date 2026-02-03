@@ -17,6 +17,7 @@ from devbox.utils import (
     get_project_tag,
     format_timedelta,
     get_utc_now,
+    serialize_datetimes,
     determine_ssh_username,
     DevBoxError,
     ResourceNotFoundError,
@@ -171,6 +172,25 @@ def test_get_utc_now():
     assert result.tzinfo == timezone.utc
     assert before <= result <= after
     assert (result - before).total_seconds() < 1
+
+
+def test_serialize_datetimes_nested():
+    now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    payload = {
+        "created": now,
+        "items": [
+            {"updated": now},
+            now,
+        ],
+        "count": 2,
+    }
+
+    result = serialize_datetimes(payload)
+
+    assert result["created"] == now.isoformat()
+    assert result["items"][0]["updated"] == now.isoformat()
+    assert result["items"][1] == now.isoformat()
+    assert result["count"] == 2
 
 
 class TestExceptionClasses:

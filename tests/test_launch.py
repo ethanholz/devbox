@@ -20,6 +20,7 @@ from devbox.launch import (
     determine_ami,
     launch_instance_in_azs,
     display_instance_info,
+    launch_devbox,
     launch_programmatic,
     main,
 )
@@ -786,6 +787,79 @@ def test_launch_programmatic_success(
 
     mock_init_aws.assert_called_once()
     mock_display.assert_called_once()
+
+
+@patch("devbox.launch.initialize_aws_clients")
+@patch("devbox.launch.get_launch_config")
+@patch("devbox.launch.validate_project_status")
+@patch("devbox.launch.determine_ami")
+@patch("devbox.launch.get_volume_info")
+@patch("devbox.launch.get_launch_template_info")
+@patch("devbox.launch.launch_instance_in_azs")
+@patch("devbox.launch.update_instance_status")
+@patch("devbox.launch.get_instance_info")
+def test_launch_devbox_success(
+    mock_get_info,
+    mock_update,
+    mock_launch_azs,
+    mock_get_lt_info,
+    mock_get_vol_info,
+    mock_determine_ami,
+    mock_validate,
+    mock_get_config,
+    mock_init_aws,
+):
+    """Test launch_devbox returns structured results."""
+    mock_aws = {"ec2": MagicMock(), "ec2_resource": MagicMock()}
+    mock_init_aws.return_value = mock_aws
+
+    mock_config = {
+        "lt_ids": ["lt-12345"],
+        "table": MagicMock(),
+        "item": {"Status": "READY"},
+    }
+    mock_get_config.return_value = mock_config
+    mock_validate.return_value = "READY"
+    mock_determine_ami.return_value = "ami-12345"
+    mock_get_vol_info.return_value = ([], 0)
+    mock_get_lt_info.return_value = {"lt-12345": {"name": "us-east-1a"}}
+
+    mock_instance = MagicMock()
+    mock_instance.meta.data = {"State": {"Name": "running"}, "PublicIpAddress": "1.2.3.4"}
+    mock_launch_azs.return_value = (
+        mock_instance,
+        "i-12345",
+        {"State": {"Name": "running"}, "PublicIpAddress": "1.2.3.4"},
+    )
+
+    mock_get_info.return_value = {
+        "instance_id": "i-12345",
+        "project": "test-project",
+        "public_ip": "1.2.3.4",
+        "private_ip": "10.0.0.1",
+        "availability_zone": "us-east-1a",
+        "username": "ubuntu",
+        "image_id": "ami-12345",
+        "instance_type": "t3.medium",
+        "status": "running",
+    }
+
+    result = launch_devbox("test-project", instance_type="t3.medium", key_pair="test-key")
+
+    assert result["instance_id"] == "i-12345"
+    assert result["project"] == "test-project"
+    assert result["public_ip"] == "1.2.3.4"
+    assert result["username"] == "ubuntu"
+    assert result["image_id"] == "ami-12345"
+    assert result["instance_type"] == "t3.medium"
+    assert result["key_pair"] == "test-key"
+    assert result["status"] == "running"
+
+
+def test_launch_devbox_invalid_project_name():
+    """Test launch_devbox raises ValueError for invalid project names."""
+    with pytest.raises(ValueError):
+        launch_devbox("invalid.project", instance_type="t3.medium", key_pair="test-key")
 
 
 def test_launch_programmatic_invalid_project_name():
