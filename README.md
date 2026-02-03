@@ -126,6 +126,45 @@ This is for an individual DevBox project.
 
 1. Find the initial AMI
 
+## MCP Support
+
+DevBox includes an MCP server so agents can manage devboxes using the local CLI
+and your existing AWS credentials.
+
+Run the MCP server locally:
+
+```bash
+devbox mcp
+```
+
+Sample MCP config (stdio transport):
+
+```json
+{
+  "name": "devbox",
+  "command": "devbox",
+  "args": ["mcp"]
+}
+```
+
+Available tools:
+- `devbox_launch`: Launch a devbox instance.
+- `devbox_status`: List instances, volumes, and snapshots.
+- `devbox_terminate`: Terminate a devbox instance by project or instance id.
+
+Example tool usage (agent-side):
+
+```json
+{
+  "tool": "devbox_launch",
+  "arguments": {
+    "project": "my-project",
+    "instance_type": "t3.medium",
+    "key_pair": "devbox-key"
+  }
+}
+```
+
 ## Troubleshooting
 
 ### connect to host `<ip>` port 22: Connection refused
