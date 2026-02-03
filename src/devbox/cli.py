@@ -124,6 +124,23 @@ def new(ctx, project: str, base_ami: str, param_prefix: str):
         console.print_error(f"Failed to create project: {str(e)}")
         sys.exit(1)
 
+
+@cli.command()
+def mcp():
+    """Run the MCP server for DevBox (stdio transport).
+
+    Returns
+    -------
+    None
+        Runs the MCP server event loop.
+    """
+    from .mcp_server import run_mcp_server
+
+    sys.stderr.write("Starting DevBox MCP server (stdio)\n")
+    sys.stderr.flush()
+    run_mcp_server()
+
+
 def main():
     """Entry point for the CLI."""
     cli(obj={})

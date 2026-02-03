@@ -119,6 +119,30 @@ def get_utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def serialize_datetimes(value: Any) -> Any:
+    """Recursively convert datetime objects to ISO 8601 strings.
+
+    Parameters
+    ----------
+    value : object
+        Any nested structure containing datetime objects.
+
+    Returns
+    -------
+    object
+        A JSON-serializable structure with datetime values converted to strings.
+    """
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: serialize_datetimes(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [serialize_datetimes(val) for val in value]
+    if isinstance(value, tuple):
+        return tuple(serialize_datetimes(val) for val in value)
+    return value
+
+
 def determine_ssh_username(ami_name: str = "", ami_description: str = "") -> str:
     """Determine the SSH username for an AMI based on its name and description.
 

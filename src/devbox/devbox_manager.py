@@ -53,12 +53,18 @@ class DevBoxManager:
         table_name = utils.get_ssm_parameter(f"/{self.prefix}/{table_param}")
         return utils.get_dynamodb_table(table_name)
 
-    def list_instances(self, project: Optional[str] = None, console=None) -> List[Dict]:
+    def list_instances(
+        self,
+        project: Optional[str] = None,
+        console=None,
+        serialize: bool = False,
+    ) -> List[Dict]:
         """List EC2 instances, optionally filtered by project.
 
         Args:
             project: Optional project name to filter instances
             console: Optional console output handler
+            serialize: If True, convert datetime fields to ISO strings
 
         Returns:
             List of instance dictionaries with relevant attributes
@@ -87,6 +93,8 @@ class DevBoxManager:
                     }
                     instances.append(instance_info)
 
+            if serialize:
+                return utils.serialize_datetimes(instances)
             return instances
 
         except ClientError as e:
@@ -139,13 +147,20 @@ class DevBoxManager:
                 original_exception=e
             )
 
-    def list_snapshots(self, project: Optional[str] = None, console=None, orphan_only: bool = False) -> List[Dict]:
+    def list_snapshots(
+        self,
+        project: Optional[str] = None,
+        console=None,
+        orphan_only: bool = False,
+        serialize: bool = False,
+    ) -> List[Dict]:
         """List EBS snapshots, optionally filtered to show only orphaned snapshots.
 
         Args:
             project: Optional project name to filter snapshots
             console: Optional console output handler
             orphan_only: If True, only return snapshots not associated with any AMI
+            serialize: If True, convert datetime fields to ISO strings
 
         Returns:
             List of snapshot dictionaries with relevant attributes
@@ -194,6 +209,8 @@ class DevBoxManager:
                 }
                 snapshots.append(snapshot_info)
 
+            if serialize:
+                return utils.serialize_datetimes(snapshots)
             return snapshots
 
         except ClientError as e:

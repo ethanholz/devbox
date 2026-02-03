@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from typing import Dict, Any, Optional, Tuple, List, TYPE_CHECKING
@@ -34,6 +35,27 @@ SSMClient = Any
 DynamoDBTable = Any
 EC2Client = Any
 EC2ServiceResource = Any
+
+
+@contextlib.contextmanager
+def _stdout_guard(emit_output: bool):
+    """Redirect stdout to stderr when output should be suppressed.
+
+    Parameters
+    ----------
+    emit_output : bool
+        When False, redirect stdout to stderr inside the context.
+
+    Yields
+    ------
+    None
+        Context manager for stdout redirection.
+    """
+    if emit_output:
+        yield
+    else:
+        with contextlib.redirect_stdout(sys.stderr):
+            yield
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -747,64 +769,32 @@ def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) 
         table: DynamoDB table resource
     """
     try:
-        desc = ec2.describe_instances(InstanceIds=[instance_id])
-        instance = desc["Reservations"][0]["Instances"][0]
+        info = get_instance_info(ec2, instance_id, project, table)
+        if not info:
+            return
 
         print("\n" + "="*50)
         print("Instance Launched Successfully")
         print("="*50)
 
-        print(f"\n{'Instance ID:':<20} {instance_id}")
-        print(f"{'State:':<20} {instance.get('State', {}).get('Name', 'unknown')}")
-        print(f"{'Type:':<20} {instance.get('InstanceType', 'unknown')}")
-        print(f"{'AMI:':<20} {instance.get('ImageId', 'unknown')}")
+        print(f"\n{'Instance ID:':<20} {info.get('instance_id', '')}")
+        print(f"{'State:':<20} {info.get('status', 'unknown')}")
+        print(f"{'Type:':<20} {info.get('instance_type', 'unknown')}")
+        print(f"{'AMI:':<20} {info.get('image_id', 'unknown')}")
 
-        if 'Placement' in instance:
-            print(f"\n{'Availability Zone:':<20} {instance['Placement'].get('AvailabilityZone', 'unknown')}")
+        availability_zone = info.get("availability_zone")
+        if availability_zone:
+            print(f"\n{'Availability Zone:':<20} {availability_zone}")
 
-        if 'PrivateIpAddress' in instance:
-            print(f"{'Private IP:':<20} {instance['PrivateIpAddress']}")
+        private_ip = info.get("private_ip")
+        if private_ip:
+            print(f"{'Private IP:':<20} {private_ip}")
 
-        public_ip = instance.get('PublicIpAddress')
+        public_ip = info.get("public_ip")
         if public_ip:
             print(f"{'Public IP:':<20} {public_ip}")
 
-            # Get SSH username from DynamoDB, determine if needed
-            username = "ec2-user"  # default fallback
-            try:
-                resp = table.get_item(Key={"project": project})
-                if "Item" in resp:
-                    db_username = resp["Item"].get("Username", "")
-                    if db_username:
-                        username = db_username
-                    else:
-                        # Determine username from current AMI if not stored
-                        ami_id = resp["Item"].get("AMI", "")
-                        if ami_id:
-                            try:
-                                ami_resp = ec2.describe_images(ImageIds=[ami_id])
-                                if ami_resp.get("Images"):
-                                    ami = ami_resp["Images"][0]
-                                    ami_name = ami.get("Name", "")
-                                    ami_description = ami.get("Description", "")
-                                    determined_username = determine_ssh_username(ami_name, ami_description)
-                                    if determined_username:
-                                        username = determined_username
-                                        # Update DynamoDB with determined username
-                                        table.update_item(
-                                            Key={"project": project},
-                                            UpdateExpression="SET Username = :u",
-                                            ExpressionAttributeValues={":u": username}
-                                        )
-                                    else:
-                                        username = "<username>"  # placeholder for unknown
-                            except Exception:
-                                username = "<username>"
-                        else:
-                            username = "<username>"
-            except Exception as e:
-                print(f"Warning: Could not retrieve SSH username from database: {e}")
-                username = "<username>"
+            username = info.get("username") or "<username>"
 
             print("\nYou can SSH into the instance using:")
             print(f"ssh -i /path/to/your-key.pem {username}@{public_ip}")
@@ -819,27 +809,122 @@ def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) 
         print(f"\nWarning: Could not get instance details: {str(e)}")
 
 
-def launch_programmatic(
+def get_instance_info(ec2: Any, instance_id: str, project: str, table: Any) -> Dict[str, Any]:
+    """Fetch structured information about a launched instance.
+
+    Parameters
+    ----------
+    ec2 : object
+        EC2 client used to describe instances and images.
+    instance_id : str
+        The instance ID to describe.
+    project : str
+        Project name used for DynamoDB lookups.
+    table : object
+        DynamoDB table resource for project metadata.
+
+    Returns
+    -------
+    dict
+        Structured instance information including IPs, status, and username.
+    """
+    desc = ec2.describe_instances(InstanceIds=[instance_id])
+    instance = desc["Reservations"][0]["Instances"][0]
+
+    public_ip = instance.get("PublicIpAddress", "")
+    username = None
+
+    if public_ip:
+        try:
+            resp = table.get_item(Key={"project": project})
+            if "Item" in resp:
+                db_username = resp["Item"].get("Username", "")
+                if db_username:
+                    username = db_username
+                else:
+                    ami_id = resp["Item"].get("AMI", "")
+                    if ami_id:
+                        try:
+                            ami_resp = ec2.describe_images(ImageIds=[ami_id])
+                            if ami_resp.get("Images"):
+                                ami = ami_resp["Images"][0]
+                                ami_name = ami.get("Name", "")
+                                ami_description = ami.get("Description", "")
+                                determined_username = determine_ssh_username(
+                                    ami_name, ami_description
+                                )
+                                if determined_username:
+                                    username = determined_username
+                                    table.update_item(
+                                        Key={"project": project},
+                                        UpdateExpression="SET Username = :u",
+                                        ExpressionAttributeValues={":u": username},
+                                    )
+                        except Exception:
+                            username = None
+        except Exception:
+            username = None
+
+    return {
+        "instance_id": instance_id,
+        "project": project,
+        "public_ip": public_ip,
+        "private_ip": instance.get("PrivateIpAddress", ""),
+        "availability_zone": instance.get("Placement", {}).get("AvailabilityZone", ""),
+        "username": username,
+        "image_id": instance.get("ImageId", ""),
+        "instance_type": instance.get("InstanceType", ""),
+        "status": instance.get("State", {}).get("Name", "unknown"),
+    }
+
+
+def _launch_internal(
     project: str,
     instance_type: Optional[str] = None,
     key_pair: Optional[str] = None,
     volume_size: int = 0,
     base_ami: Optional[str] = None,
-    param_prefix: str = "/devbox"
-) -> None:
-    """Launch a devbox instance programmatically.
+    param_prefix: str = "/devbox",
+    emit_output: bool = True,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Core launch implementation shared by CLI and MCP.
 
-    Args:
-        project: Project name (alphanumeric and hyphens only)
-        instance_type: EC2 instance type (e.g., t3.medium, m5.large) (uses last instance type if None)
-        key_pair: Name of the EC2 Key Pair for SSH access (uses last keypair if None)
-        volume_size: Minimum size (GiB) for the root EBS volume
-        base_ami: Base AMI ID (only required for new projects)
-        param_prefix: Prefix for AWS Systems Manager Parameter Store keys
+    Parameters
+    ----------
+    project : str
+        Project name (alphanumeric and hyphens only).
+    instance_type : str, optional
+        EC2 instance type to use.
+    key_pair : str, optional
+        EC2 key pair name for SSH access.
+    volume_size : int
+        Minimum size (GiB) for the root EBS volume.
+    base_ami : str, optional
+        Base AMI ID for new projects.
+    param_prefix : str
+        SSM parameter prefix.
+    emit_output : bool
+        When True, print progress messages to stdout.
+
+    Returns
+    -------
+    tuple
+        Structured launch result and context containing AWS clients/resources.
+
+    Raises
+    ------
+    ValueError
+        If inputs are invalid or required values are missing.
+    ResourceNotFoundError
+        If required AWS resources are missing.
+    AWSClientError
+        If AWS API calls fail.
+    RuntimeError
+        If instance launch fails across all availability zones.
     """
-    try:
+    with _stdout_guard(emit_output):
         # Validate project name
-        if not project.replace('-', '').isalnum():
+        if not project.replace("-", "").isalnum():
             raise ValueError("Project name must be alphanumeric with optional hyphens")
         if volume_size < 0:
             raise ValueError("Volume size must be a non-negative number")
@@ -860,7 +945,9 @@ def launch_programmatic(
                 instance_type = last_instance_type
                 print(f"Using last instance type: {instance_type}")
             else:
-                raise ValueError("No instance type specified and no previous instance type found for this project")
+                raise ValueError(
+                    "No instance type specified and no previous instance type found for this project"
+                )
         else:
             print(f"Using specified instance type: {instance_type}")
 
@@ -871,7 +958,9 @@ def launch_programmatic(
                 key_pair = last_key_pair
                 print(f"Using last keypair: {key_pair}")
             else:
-                raise ValueError("No key pair specified and no previous keypair found for this project")
+                raise ValueError(
+                    "No key pair specified and no previous keypair found for this project"
+                )
         else:
             print(f"Using specified keypair: {key_pair}")
 
@@ -895,7 +984,7 @@ def launch_programmatic(
             instance_type=instance_type,
             key_name=key_pair,
             volumes=volumes,
-            project=project
+            project=project,
         )
 
         # Wait for instance to be running
@@ -915,13 +1004,15 @@ def launch_programmatic(
                         ami = ami_resp["Images"][0]
                         ami_name = ami.get("Name", "")
                         ami_description = ami.get("Description", "")
-                        determined_username = determine_ssh_username(ami_name, ami_description)
+                        determined_username = determine_ssh_username(
+                            ami_name, ami_description
+                        )
                         if determined_username:
                             print(f"Determined SSH username: {determined_username}")
                             config["table"].update_item(
                                 Key={"project": project},
                                 UpdateExpression="SET Username = :u",
-                                ExpressionAttributeValues={":u": determined_username}
+                                ExpressionAttributeValues={":u": determined_username},
                             )
         except Exception as e:
             print(f"Warning: Could not determine SSH username: {e}")
@@ -938,8 +1029,109 @@ def launch_programmatic(
             instance_info=instance_info,
         )
 
-        # Display instance information
-        display_instance_info(aws["ec2"], instance_id, project, config["table"])
+        result: Dict[str, Any] = {
+            "project": project,
+            "instance_id": instance_id,
+            "public_ip": instance_info.get("PublicIpAddress", ""),
+            "username": None,
+            "image_id": image_id,
+            "instance_type": instance_type,
+            "key_pair": key_pair,
+            "status": instance_info.get("State", {}).get("Name", "unknown"),
+        }
+
+        try:
+            info = get_instance_info(aws["ec2"], instance_id, project, config["table"])
+            result.update(
+                {
+                    "public_ip": info.get("public_ip", result["public_ip"]),
+                    "username": info.get("username"),
+                    "status": info.get("status", result["status"]),
+                }
+            )
+        except Exception:
+            pass
+
+        return result, {"ec2": aws["ec2"], "table": config["table"]}
+
+
+def launch_devbox(
+    project: str,
+    instance_type: Optional[str] = None,
+    key_pair: Optional[str] = None,
+    volume_size: int = 0,
+    base_ami: Optional[str] = None,
+    param_prefix: str = "/devbox",
+    emit_output: bool = False,
+) -> Dict[str, Any]:
+    """Launch a devbox instance programmatically and return structured info.
+
+    Parameters
+    ----------
+    project : str
+        Project name (alphanumeric and hyphens only).
+    instance_type : str, optional
+        EC2 instance type to use.
+    key_pair : str, optional
+        EC2 key pair name for SSH access.
+    volume_size : int
+        Minimum size (GiB) for the root EBS volume.
+    base_ami : str, optional
+        Base AMI ID for new projects.
+    param_prefix : str
+        SSM parameter prefix.
+    emit_output : bool
+        When True, print progress messages to stdout.
+
+    Returns
+    -------
+    dict
+        Structured launch result including instance identifiers and status.
+    """
+    result, _ = _launch_internal(
+        project=project,
+        instance_type=instance_type,
+        key_pair=key_pair,
+        volume_size=volume_size,
+        base_ami=base_ami,
+        param_prefix=param_prefix,
+        emit_output=emit_output,
+    )
+    return result
+
+
+def launch_programmatic(
+    project: str,
+    instance_type: Optional[str] = None,
+    key_pair: Optional[str] = None,
+    volume_size: int = 0,
+    base_ami: Optional[str] = None,
+    param_prefix: str = "/devbox",
+) -> None:
+    """Launch a devbox instance programmatically.
+
+    Args:
+        project: Project name (alphanumeric and hyphens only)
+        instance_type: EC2 instance type (e.g., t3.medium, m5.large) (uses last instance type if None)
+        key_pair: Name of the EC2 Key Pair for SSH access (uses last keypair if None)
+        volume_size: Minimum size (GiB) for the root EBS volume
+        base_ami: Base AMI ID (only required for new projects)
+        param_prefix: Prefix for AWS Systems Manager Parameter Store keys
+    """
+    try:
+        result, context = _launch_internal(
+            project=project,
+            instance_type=instance_type,
+            key_pair=key_pair,
+            volume_size=volume_size,
+            base_ami=base_ami,
+            param_prefix=param_prefix,
+            emit_output=True,
+        )
+
+        display_instance_info(
+            context["ec2"], result["instance_id"], project, context["table"]
+        )
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
@@ -949,7 +1141,7 @@ def launch_programmatic(
         sys.exit(2)
     except AWSClientError as e:
         print(f"AWS Error: {str(e)}", file=sys.stderr)
-        if hasattr(e, 'error_code'):
+        if hasattr(e, "error_code"):
             print(f"Error Code: {e.error_code}", file=sys.stderr)
         sys.exit(3)
     except Exception as e:
