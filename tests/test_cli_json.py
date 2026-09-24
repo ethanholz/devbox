@@ -46,7 +46,7 @@ def test_json_errors_leave_stdout_clean():
 @pytest.mark.parametrize("args,expected", [
     (["--json", "launch"], "Missing argument 'PROJECT'"),
     (["launch", "--json"], "Missing argument 'PROJECT'"),
-    (["status", "--json", "--unknown"], "No such option: --unknown"),
+    (["status", "--json", "--unknown"], "No such option"),
     (["--json", "unknown"], "No such command 'unknown'"),
     (["--json", "new", "demo"], "Missing option '--base-ami'"),
     (["status", "--param-prefix", "bad//prefix", "--json"],
@@ -58,6 +58,8 @@ def test_json_click_parsing_errors(args, expected):
     assert result.exit_code == 2
     assert result.stdout == ""
     assert expected in json.loads(result.stderr)["error"]
+    if "--unknown" in args:
+        assert "--unknown" in json.loads(result.stderr)["error"]
 
 
 def test_default_click_parsing_errors_remain_human_readable():
