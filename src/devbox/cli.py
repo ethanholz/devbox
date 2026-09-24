@@ -66,6 +66,21 @@ def emit_error(console, message: str, json_output: bool) -> None:
         console.print_error(message)
 
 
+class JsonGroup(click.Group):
+    """Render Click's pre-callback parsing errors as JSON when requested."""
+
+    def main(self, args=None, **kwargs):
+        if args is None:
+            args = sys.argv[1:]
+        if "--json" not in args or "--help" in args:
+            return super().main(args=args, **kwargs)
+        try:
+            return super().main(args=args, **{**kwargs, "standalone_mode": False})
+        except click.ClickException as exc:
+            click.echo(json.dumps({"error": exc.format_message()}), err=True)
+            raise SystemExit(exc.exit_code) from exc
+
+
 def get_manager(console: ConsoleOutput, param_prefix: str, json_output: bool = False) -> DevBoxManager:
     """Create a ``DevBoxManager`` for the requested parameter prefix.
 
@@ -94,7 +109,7 @@ def get_manager(console: ConsoleOutput, param_prefix: str, json_output: bool = F
         sys.exit(1)
 
 
-@click.group()
+@click.group(cls=JsonGroup)
 @click.version_option()
 @click.option("--json", "json_output", is_flag=True, help="Output the result as JSON")
 @click.pass_context

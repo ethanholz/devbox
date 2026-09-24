@@ -811,7 +811,10 @@ def launch_instance_in_azs(
     raise RuntimeError(error_msg)
 
 
-def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) -> dict:
+CONNECTION_FIELDS = ("public_ip", "private_ip", "public_dns", "ssh_username", "ssh_command")
+
+
+def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) -> dict[str, str | None]:
     """Display information about the launched instance.
 
     Args:
@@ -909,7 +912,7 @@ def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) 
 
     except Exception as e:
         print(f"\nWarning: Could not get instance details: {str(e)}")
-        return {}
+        return dict.fromkeys(CONNECTION_FIELDS)
 
 
 def launch_programmatic(
@@ -923,7 +926,7 @@ def launch_programmatic(
     assign_dns: bool = True,
     dns_subdomain: Optional[str] = None,
     raise_errors: bool = False,
-) -> None:
+) -> dict[str, str | None]:
     """Launch a devbox instance programmatically.
 
     Args:
@@ -937,6 +940,12 @@ def launch_programmatic(
         assign_dns: Whether to assign a DNS CNAME for the instance
         dns_subdomain: Optional custom subdomain to override the project name
         raise_errors: Propagate failures to the caller instead of exiting
+
+    Returns
+    -------
+    dict[str, str | None]
+        Instance ID, project, assigned DNS, and connection details. Missing
+        details are returned as null values.
     """
     try:
         # Validate project name
@@ -1106,7 +1115,8 @@ def launch_programmatic(
         # Display instance information
         details = display_instance_info(aws["ec2"], instance_id, project, config["table"])
         return {"project": project, "instance_id": instance_id,
-                "dns": assigned_dns, **(details if isinstance(details, dict) else {})}
+                "dns": assigned_dns, **dict.fromkeys(CONNECTION_FIELDS),
+                **(details if isinstance(details, dict) else {})}
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")

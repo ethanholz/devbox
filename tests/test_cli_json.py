@@ -3,6 +3,7 @@
 import json
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from devbox.cli import cli
@@ -40,6 +41,30 @@ def test_json_errors_leave_stdout_clean():
     assert result.exit_code == 1
     assert result.stdout == ""
     assert json.loads(result.stderr) == {"error": "Failed to retrieve status: offline"}
+
+
+@pytest.mark.parametrize("args,expected", [
+    (["--json", "launch"], "Missing argument 'PROJECT'"),
+    (["launch", "--json"], "Missing argument 'PROJECT'"),
+    (["status", "--json", "--unknown"], "No such option: --unknown"),
+    (["--json", "unknown"], "No such command 'unknown'"),
+    (["--json", "new", "demo"], "Missing option '--base-ami'"),
+    (["status", "--param-prefix", "bad//prefix", "--json"],
+     "Parameter prefix cannot contain consecutive slashes"),
+])
+def test_json_click_parsing_errors(args, expected):
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert expected in json.loads(result.stderr)["error"]
+
+
+def test_default_click_parsing_errors_remain_human_readable():
+    result = CliRunner().invoke(cli, ["launch"])
+
+    assert result.exit_code == 2
+    assert "Usage:" in result.stderr
 
 
 def test_launch_json_errors_leave_stdout_clean():

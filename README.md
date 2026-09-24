@@ -162,6 +162,7 @@ avoid interactive prompts in machine-readable output.
 `devbox launch my-project --json` includes `public_ip`, `private_ip`,
 `public_dns` (EC2 hostname), `dns` (assigned CNAME, or `null`),
 `ssh_username`, and `ssh_command` alongside the project and instance ID.
+Unavailable connection details are `null`, not omitted.
 The SSH command uses a placeholder key path; replace it with your key file.
 
 Optionally pass cloud-init user data (shell script or `#cloud-config`) with

@@ -183,7 +183,7 @@ def new_project_programmatic(
     instance_type: Optional[str] = None,
     key_pair: Optional[str] = None,
     param_prefix: str = "/devbox"
-) -> None:
+) -> dict[str, str | None]:
     """Create a new DevBox project without launching an instance.
 
     Parameters
@@ -198,6 +198,11 @@ def new_project_programmatic(
         Default SSH key pair name for future launches.
     param_prefix : str, default="/devbox"
         Prefix for AWS Systems Manager Parameter Store keys.
+
+    Returns
+    -------
+    dict[str, str | None]
+        Created project name, status, AMI, and optional launch defaults.
 
     Raises
     ------

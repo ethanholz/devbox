@@ -803,7 +803,10 @@ def test_display_instance_info_error(mock_ec2_client):
 
     mock_table = MagicMock()
 
-    display_instance_info(mock_ec2_client, "i-nonexistent", "test-project", mock_table)
+    details = display_instance_info(mock_ec2_client, "i-nonexistent", "test-project", mock_table)
+    assert details == dict.fromkeys((
+        "public_ip", "private_ip", "public_dns", "ssh_username", "ssh_command"
+    ))
 
 
 # Test functions for launch_programmatic
@@ -852,7 +855,11 @@ def test_launch_programmatic_success(
         {"State": {"Name": "running"}},
     )
 
-    launch_programmatic("test-project", instance_type="t3.medium", key_pair="test-key", assign_dns=False)
+    result = launch_programmatic("test-project", instance_type="t3.medium", key_pair="test-key", assign_dns=False)
+
+    assert result == {"project": "test-project", "instance_id": "i-12345", "dns": None,
+                      **dict.fromkeys(("public_ip", "private_ip", "public_dns",
+                                       "ssh_username", "ssh_command"))}
 
     mock_init_aws.assert_called_once()
     mock_display.assert_called_once()

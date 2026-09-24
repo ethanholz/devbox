@@ -218,13 +218,18 @@ def test_new_project_programmatic_success(
     mock_get_dynamodb_table.return_value = MagicMock()
     mock_check_exists.return_value = None
 
-    new_project_programmatic(
+    result = new_project_programmatic(
         project="my-project",
         base_ami="ami-12345678",
         instance_type="m5.large",
         key_pair="my-key",
         param_prefix="/devbox",
     )
+
+    assert result == {
+        "project": "my-project", "status": "READY", "base_ami": "ami-12345678",
+        "instance_type": "m5.large", "key_pair": "my-key",
+    }
 
     mock_init_aws.assert_called_once()
     mock_validate_ami.assert_called_once_with(aws["ec2"], "ami-12345678")
