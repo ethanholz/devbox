@@ -4,6 +4,8 @@ This module provides the Click-based CLI for managing DevBox instances.
 """
 
 import sys
+import json
+from contextlib import nullcontext, redirect_stdout
 import click
 from typing import Optional
 
@@ -51,7 +53,20 @@ def param_prefix_option(func):
     )(func)
 
 
-def get_manager(console: ConsoleOutput, param_prefix: str) -> DevBoxManager:
+def json_option(func):
+    """Allow JSON output with the flag before or after the subcommand."""
+    return click.option("--json", "json_output", is_flag=True,
+                        help="Output the result as JSON")(func)
+
+
+def emit_error(console, message: str, json_output: bool) -> None:
+    if json_output:
+        click.echo(json.dumps({"error": message}), err=True)
+    else:
+        console.print_error(message)
+
+
+def get_manager(console: ConsoleOutput, param_prefix: str, json_output: bool = False) -> DevBoxManager:
     """Create a ``DevBoxManager`` for the requested parameter prefix.
 
     Parameters
@@ -75,27 +90,31 @@ def get_manager(console: ConsoleOutput, param_prefix: str) -> DevBoxManager:
     try:
         return DevBoxManager(prefix=manager_prefix)
     except Exception as e:
-        console.print_error(f"Failed to initialize AWS clients: {str(e)}")
+        emit_error(console, f"Failed to initialize AWS clients: {str(e)}", json_output)
         sys.exit(1)
 
 
 @click.group()
 @click.version_option()
+@click.option("--json", "json_output", is_flag=True, help="Output the result as JSON")
 @click.pass_context
-def cli(ctx):
+def cli(ctx, json_output):
     """DevBox - AWS EC2 Development Environment Manager."""
     ctx.ensure_object(dict)
     ctx.obj["console"] = ConsoleOutput()
+    ctx.obj["json_output"] = json_output
 
 
 @cli.command()
 @click.argument("project", required=False)
+@json_option
 @param_prefix_option
 @click.pass_context
 def status(
     ctx,
     project: Optional[str] = None,
     param_prefix: str = DEFAULT_PARAM_PREFIX,
+    json_output: bool = False,
 ):
     """Show status of DevBox resources.
 
@@ -103,34 +122,45 @@ def status(
     Otherwise, show all resources.
     """
     console = ctx.obj["console"]
+    json_output |= ctx.obj["json_output"]
 
     try:
-        run_status_command(
+        kwargs = {"json_output": True} if json_output else {}
+        result = run_status_command(
             project=project,
             param_prefix=param_prefix,
             console=console,
+            **kwargs,
         )
+        if json_output:
+            click.echo(json.dumps(result))
     except Exception as e:
-        console.print_error(f"Failed to retrieve status: {str(e)}")
+        emit_error(console, f"Failed to retrieve status: {str(e)}", json_output)
         sys.exit(1)
 
 
 @cli.command()
 @click.argument("identifier")
+@json_option
 @param_prefix_option
 @click.pass_context
-def terminate(ctx, identifier: str, param_prefix: str):
+def terminate(ctx, identifier: str, param_prefix: str, json_output: bool):
     """Terminate a DevBox instance by instance ID or project name."""
     console = ctx.obj["console"]
+    json_output |= ctx.obj["json_output"]
 
     try:
-        run_terminate_command(
+        kwargs = {"json_output": True} if json_output else {}
+        result = run_terminate_command(
             identifier=identifier,
             param_prefix=param_prefix,
             console=console,
+            **kwargs,
         )
+        if json_output:
+            click.echo(json.dumps(result))
     except Exception as e:
-        console.print_error(f"Failed to terminate instance: {str(e)}")
+        emit_error(console, f"Failed to terminate instance: {str(e)}", json_output)
         sys.exit(1)
 
 
@@ -161,6 +191,7 @@ def terminate(ctx, identifier: str, param_prefix: str):
     type=click.Path(exists=True),
     help="Path to userdata script file (cloud-init format)",
 )
+@json_option
 @click.pass_context
 def launch(
     ctx,
@@ -173,6 +204,7 @@ def launch(
     dns_subdomain: Optional[str],
     param_prefix: str,
     userdata_file: Optional[str],
+    json_output: bool,
 ):
     """Launch a new DevBox instance.
 
@@ -182,21 +214,27 @@ def launch(
     from .launch import launch_programmatic
 
     console = ctx.obj["console"]
+    json_output |= ctx.obj["json_output"]
 
     try:
-        launch_programmatic(
-            project=project,
-            instance_type=instance_type,
-            key_pair=key_pair,
-            volume_size=volume_size,
-            base_ami=base_ami,
-            param_prefix=param_prefix,
-            userdata_file=userdata_file,
-            assign_dns=not no_assign_dns,
-            dns_subdomain=dns_subdomain,
-        )
+        kwargs = {"raise_errors": True} if json_output else {}
+        with redirect_stdout(sys.stderr) if json_output else nullcontext():
+            result = launch_programmatic(
+                project=project,
+                instance_type=instance_type,
+                key_pair=key_pair,
+                volume_size=volume_size,
+                base_ami=base_ami,
+                param_prefix=param_prefix,
+                userdata_file=userdata_file,
+                assign_dns=not no_assign_dns,
+                dns_subdomain=dns_subdomain,
+                **kwargs,
+            )
+        if json_output:
+            click.echo(json.dumps(result))
     except Exception as e:
-        console.print_error(f"Failed to launch instance: {str(e)}")
+        emit_error(console, f"Failed to launch instance: {str(e)}", json_output)
         sys.exit(1)
 
 
@@ -206,6 +244,7 @@ def launch(
 @click.option('--instance-type', help='Default EC2 instance type for future launches')
 @click.option('--key-pair', help='Default SSH key pair name for future launches')
 @param_prefix_option
+@json_option
 @click.pass_context
 def new(
     ctx,
@@ -214,6 +253,7 @@ def new(
     instance_type: Optional[str],
     key_pair: Optional[str],
     param_prefix: str,
+    json_output: bool,
 ):
     """Create a new DevBox project without launching an instance.
 
@@ -222,17 +262,21 @@ def new(
     from .new import new_project_programmatic
 
     console = ctx.obj["console"]
+    json_output |= ctx.obj["json_output"]
 
     try:
-        new_project_programmatic(
-            project=project,
-            base_ami=base_ami,
-            instance_type=instance_type,
-            key_pair=key_pair,
-            param_prefix=param_prefix
-        )
+        with redirect_stdout(sys.stderr) if json_output else nullcontext():
+            result = new_project_programmatic(
+                project=project,
+                base_ami=base_ami,
+                instance_type=instance_type,
+                key_pair=key_pair,
+                param_prefix=param_prefix
+            )
+        if json_output:
+            click.echo(json.dumps(result))
     except Exception as e:
-        console.print_error(f"Failed to create project: {str(e)}")
+        emit_error(console, f"Failed to create project: {str(e)}", json_output)
         sys.exit(1)
 
 
@@ -240,21 +284,26 @@ def new(
 @click.argument("project")
 @click.option("--force", is_flag=True, help="Skip confirmation prompts")
 @param_prefix_option
+@json_option
 @click.pass_context
-def delete_project(ctx, project: str, force: bool, param_prefix: str):
+def delete_project(ctx, project: str, force: bool, param_prefix: str, json_output: bool):
     """Delete a DevBox project and its AMI/snapshots."""
     console = ctx.obj["console"]
-    manager = get_manager(console, param_prefix)
+    json_output |= ctx.obj["json_output"]
+    if json_output and not force:
+        emit_error(console, "--json requires --force for delete-project", True)
+        sys.exit(2)
 
     try:
+        manager = get_manager(console, param_prefix, json_output)
         item = manager.get_project_item(project)
         if not item:
-            console.print_error(f"Project '{project}' not found in the main table.")
+            emit_error(console, f"Project '{project}' not found in the main table.", json_output)
             sys.exit(1)
 
         in_use, reason = manager.project_in_use(project, item)
         if in_use:
-            console.print_error(f"Project '{project}' is currently in use: {reason}")
+            emit_error(console, f"Project '{project}' is currently in use: {reason}", json_output)
             sys.exit(1)
 
         if not force:
@@ -263,26 +312,36 @@ def delete_project(ctx, project: str, force: bool, param_prefix: str):
                 return
 
         ami_id = item.get("AMI")
+        deleted_snapshots = None
         if ami_id:
             if not force and not click.confirm(
                 f"Also delete AMI {ami_id} and its backing snapshot(s)?"
             ):
-                console.print_warning(
-                    "AMI cleanup cancelled. Continuing with project entry deletion only."
-                )
+                if not json_output:
+                    console.print_warning(
+                        "AMI cleanup cancelled. Continuing with project entry deletion only."
+                    )
             else:
                 result = manager.delete_ami_and_snapshots(ami_id)
-                console.print_success(
-                    f"Deregistered AMI {result['ami_id']} and deleted {result['snapshot_count']} snapshot(s)."
-                )
+                deleted_snapshots = result["snapshot_count"]
+                if not json_output:
+                    console.print_success(
+                        f"Deregistered AMI {result['ami_id']} and deleted {deleted_snapshots} snapshot(s)."
+                    )
         else:
-            console.print_warning(f"No AMI recorded for project '{project}'.")
+            if not json_output:
+                console.print_warning(f"No AMI recorded for project '{project}'.")
 
         manager.delete_project_entry(project)
-        console.print_success(f"Deleted project '{project}' from the main table.")
+        if json_output:
+            click.echo(json.dumps({"project": project, "deleted": True,
+                                   "ami_id": ami_id if deleted_snapshots is not None else None,
+                                   "snapshot_count": deleted_snapshots}))
+        else:
+            console.print_success(f"Deleted project '{project}' from the main table.")
 
     except Exception as e:
-        console.print_error(f"Failed to delete project: {str(e)}")
+        emit_error(console, f"Failed to delete project: {str(e)}", json_output)
         sys.exit(1)
 
 

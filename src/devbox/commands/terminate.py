@@ -30,7 +30,8 @@ def run_terminate_command(
     identifier: str,
     param_prefix: str,
     console: Any,
-) -> None:
+    json_output: bool = False,
+) -> dict[str, Any]:
     """Run the remote ``terminate`` command and render the result.
 
     Parameters
@@ -46,11 +47,13 @@ def run_terminate_command(
         action=CliAction.TERMINATE,
         payload=build_terminate_payload(identifier),
         param_prefix=param_prefix,
-        console=console,
+        console=None if json_output else console,
     )
-    console.print_success(
-        f"Terminating instance {result['instance_id']} (project: {result['project']})."
-    )
+    if not json_output:
+        console.print_success(
+            f"Terminating instance {result['instance_id']} (project: {result['project']})."
+        )
+    return result
 
 
 def validate_terminate_payload(payload: dict[str, Any]) -> str:

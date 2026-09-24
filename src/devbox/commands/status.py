@@ -31,7 +31,8 @@ def run_status_command(
     project: str | None,
     param_prefix: str,
     console: Any,
-) -> None:
+    json_output: bool = False,
+) -> dict[str, Any]:
     """Run the remote ``status`` command and render the result.
 
     Parameters
@@ -52,12 +53,16 @@ def run_status_command(
         action=CliAction.STATUS,
         payload=build_status_payload(project),
         param_prefix=param_prefix,
-        console=console,
+        console=None if json_output else console,
     )
-    rehydrate_status_result(result)
-    console.print_instances(result["instances"])
-    console.print_volumes(result["volumes"])
-    console.print_snapshots(result["snapshots"])
+    if json_output:
+        _get_status_collections(result)
+    else:
+        rehydrate_status_result(result)
+        console.print_instances(result["instances"])
+        console.print_volumes(result["volumes"])
+        console.print_snapshots(result["snapshots"])
+    return result
 
 
 def rehydrate_status_result(payload: dict[str, Any]) -> dict[str, Any]:

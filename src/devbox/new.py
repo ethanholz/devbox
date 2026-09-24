@@ -284,6 +284,8 @@ def new_project_programmatic(
     print("   Status: READY")
     print(f"   Base AMI: {base_ami}")
     print("   You can now launch instances for this project using the 'launch' command.")
+    return {"project": project, "status": "READY", "base_ami": base_ami,
+            "instance_type": instance_type, "key_pair": key_pair}
 
 
 def main():

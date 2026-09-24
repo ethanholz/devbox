@@ -55,7 +55,19 @@ def test_launch_programmatic_reuses_stored_cname_subdomain(
     dns_manager.sanitize_dns_name.return_value = "saved-name"
     mock_from_ssm.return_value = dns_manager
 
-    launch_programmatic("test-project", instance_type="t3.medium", key_pair="test-key")
+    mock_display.return_value = {
+        "public_ip": "1.2.3.4",
+        "private_ip": "10.0.0.4",
+        "public_dns": "ec2-1-2-3-4.compute-1.amazonaws.com",
+        "ssh_username": "ubuntu",
+        "ssh_command": "ssh -i /path/to/your-key.pem ubuntu@1.2.3.4",
+    }
+    result = launch_programmatic("test-project", instance_type="t3.medium", key_pair="test-key")
+
+    assert result == {
+        "project": "test-project", "instance_id": "i-12345",
+        "dns": "saved-name.example.com", **mock_display.return_value,
+    }
 
     dns_manager.normalize_subdomain.assert_called_once_with("saved-name")
     dns_manager.assign_cname.assert_called_once_with(

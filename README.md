@@ -154,6 +154,16 @@ devbox launch my-project \
   --base-ami ami-0123456789abcdef0
 ```
 
+Use `--json` before or after a command to print one JSON result on stdout
+(for example, `devbox status --json` or `devbox --json launch my-project`).
+Errors are printed as JSON on stderr. For deletion, use `--json --force` to
+avoid interactive prompts in machine-readable output.
+
+`devbox launch my-project --json` includes `public_ip`, `private_ip`,
+`public_dns` (EC2 hostname), `dns` (assigned CNAME, or `null`),
+`ssh_username`, and `ssh_command` alongside the project and instance ID.
+The SSH command uses a placeholder key path; replace it with your key file.
+
 Optionally pass cloud-init user data (shell script or `#cloud-config`) with
 `--userdata-file`:
 

@@ -811,7 +811,7 @@ def launch_instance_in_azs(
     raise RuntimeError(error_msg)
 
 
-def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) -> None:
+def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) -> dict:
     """Display information about the launched instance.
 
     Args:
@@ -842,6 +842,7 @@ def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) 
             print(f"{'Private IP:':<20} {instance['PrivateIpAddress']}")
 
         public_ip = instance.get("PublicIpAddress")
+        username = None
         if public_ip:
             print(f"{'Public IP:':<20} {public_ip}")
 
@@ -895,9 +896,20 @@ def display_instance_info(ec2: Any, instance_id: str, project: str, table: Any) 
                 print("      (common values: ec2-user, ubuntu, admin, centos, etc.)")
 
         print("\n" + "=" * 50 + "\n")
+        return {
+            "public_ip": public_ip,
+            "private_ip": instance.get("PrivateIpAddress"),
+            "public_dns": instance.get("PublicDnsName"),
+            "ssh_username": username if username != "<username>" else None,
+            "ssh_command": (
+                f"ssh -i /path/to/your-key.pem {username}@{public_ip}"
+                if public_ip and username != "<username>" else None
+            ),
+        }
 
     except Exception as e:
         print(f"\nWarning: Could not get instance details: {str(e)}")
+        return {}
 
 
 def launch_programmatic(
@@ -910,6 +922,7 @@ def launch_programmatic(
     userdata_file: Optional[str] = None,
     assign_dns: bool = True,
     dns_subdomain: Optional[str] = None,
+    raise_errors: bool = False,
 ) -> None:
     """Launch a devbox instance programmatically.
 
@@ -923,6 +936,7 @@ def launch_programmatic(
         userdata_file: Optional path to userdata script file (cloud-init format)
         assign_dns: Whether to assign a DNS CNAME for the instance
         dns_subdomain: Optional custom subdomain to override the project name
+        raise_errors: Propagate failures to the caller instead of exiting
     """
     try:
         # Validate project name
@@ -1002,6 +1016,7 @@ def launch_programmatic(
 
         # Assign DNS if configured and requested
         cname_domain = config["item"].get("CNAMEDomain")
+        assigned_dns = None
         if assign_dns:
             try:
                 if not instance.public_dns_name:
@@ -1035,6 +1050,7 @@ def launch_programmatic(
                         if ensured_domain:
                             # Persist only the subdomain preference (not the FQDN suffix).
                             cname_domain = resolved_subdomain
+                            assigned_dns = ensured_domain
                             print(f"Ensured DNS CNAME: {ensured_domain}")
                         else:
                             print("DNS assignment skipped (provider not available)")
@@ -1088,20 +1104,28 @@ def launch_programmatic(
         )
 
         # Display instance information
-        display_instance_info(aws["ec2"], instance_id, project, config["table"])
+        details = display_instance_info(aws["ec2"], instance_id, project, config["table"])
+        return {"project": project, "instance_id": instance_id,
+                "dns": assigned_dns, **(details if isinstance(details, dict) else {})}
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
         sys.exit(1)
     except ResourceNotFoundError as e:
+        if raise_errors:
+            raise
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(2)
     except AWSClientError as e:
+        if raise_errors:
+            raise
         print(f"AWS Error: {str(e)}", file=sys.stderr)
         if hasattr(e, "error_code"):
             print(f"Error Code: {e.error_code}", file=sys.stderr)
         sys.exit(3)
     except Exception as e:
+        if raise_errors:
+            raise
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(4)
 

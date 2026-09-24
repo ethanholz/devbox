@@ -768,6 +768,8 @@ def test_display_instance_info_success(mock_ec2_client):
                         "InstanceId": "i-12345",
                         "State": {"Name": "running"},
                         "PublicIpAddress": "1.2.3.4",
+                        "PrivateIpAddress": "10.0.0.4",
+                        "PublicDnsName": "ec2-1-2-3-4.compute-1.amazonaws.com",
                         "InstanceType": "t3.medium",
                     }
                 ]
@@ -779,7 +781,15 @@ def test_display_instance_info_success(mock_ec2_client):
     mock_table = MagicMock()
     mock_table.get_item.return_value = {"Item": {"Username": "ubuntu"}}
 
-    display_instance_info(mock_ec2_client, "i-12345", "test-project", mock_table)
+    details = display_instance_info(mock_ec2_client, "i-12345", "test-project", mock_table)
+
+    assert details == {
+        "public_ip": "1.2.3.4",
+        "private_ip": "10.0.0.4",
+        "public_dns": "ec2-1-2-3-4.compute-1.amazonaws.com",
+        "ssh_username": "ubuntu",
+        "ssh_command": "ssh -i /path/to/your-key.pem ubuntu@1.2.3.4",
+    }
 
     mock_ec2_client.describe_instances.assert_called_once_with(InstanceIds=["i-12345"])
 
@@ -1179,10 +1189,12 @@ def test_display_instance_info_uses_placeholder_when_ami_metadata_missing(
     }
     mock_table.get_item.return_value = {"Item": {"Username": "", "AMI": "ami-missing"}}
 
-    display_instance_info(mock_ec2_client, "i-12345", "test-project", mock_table)
+    details = display_instance_info(mock_ec2_client, "i-12345", "test-project", mock_table)
 
     output = capsys.readouterr().out
     assert "<username>@1.2.3.4" in output
+    assert details["ssh_username"] is None
+    assert details["ssh_command"] is None
     mock_table.update_item.assert_not_called()
     mock_get_image.assert_called_once_with("ami-missing", ec2_client=mock_ec2_client)
 
