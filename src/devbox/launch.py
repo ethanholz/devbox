@@ -1119,6 +1119,8 @@ def launch_programmatic(
                 **(details if isinstance(details, dict) else {})}
 
     except KeyboardInterrupt:
+        if raise_errors:
+            raise
         print("\nOperation cancelled by user")
         sys.exit(1)
     except ResourceNotFoundError as e:

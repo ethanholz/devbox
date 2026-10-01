@@ -67,7 +67,7 @@ def emit_error(console, message: str, json_output: bool) -> None:
 
 
 class JsonGroup(click.Group):
-    """Render Click's pre-callback parsing errors as JSON when requested."""
+    """Render Click parsing errors and cancellation as JSON when requested."""
 
     def main(self, args=None, **kwargs):
         if args is None:
@@ -79,6 +79,9 @@ class JsonGroup(click.Group):
         except click.ClickException as exc:
             click.echo(json.dumps({"error": exc.format_message()}), err=True)
             raise SystemExit(exc.exit_code) from exc
+        except click.Abort as exc:
+            click.echo(json.dumps({"error": "Operation cancelled by user"}), err=True)
+            raise SystemExit(1) from exc
 
 
 def get_manager(console: ConsoleOutput, param_prefix: str, json_output: bool = False) -> DevBoxManager:

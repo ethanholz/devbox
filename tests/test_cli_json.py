@@ -43,6 +43,30 @@ def test_json_errors_leave_stdout_clean():
     assert json.loads(result.stderr) == {"error": "Failed to retrieve status: offline"}
 
 
+@pytest.mark.parametrize("target,args", [
+    ("devbox.commands.status.invoke_action", ["status", "--json"]),
+    ("devbox.new.new_project_programmatic",
+     ["--json", "new", "demo", "--base-ami", "ami-12345678"]),
+    ("devbox.launch.initialize_aws_clients", ["launch", "demo", "--json"]),
+])
+def test_json_cancellation_leaves_stdout_clean(target, args):
+    with patch(target, side_effect=KeyboardInterrupt):
+        result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert json.loads(result.stderr) == {"error": "Operation cancelled by user"}
+
+
+def test_launch_cancellation_remains_human_readable():
+    with patch("devbox.launch.initialize_aws_clients", side_effect=KeyboardInterrupt):
+        result = CliRunner().invoke(cli, ["launch", "demo"])
+
+    assert result.exit_code == 1
+    assert "Operation cancelled by user" in result.stdout
+    assert result.stderr == ""
+
+
 @pytest.mark.parametrize("args,expected", [
     (["--json", "launch"], "Missing argument 'PROJECT'"),
     (["launch", "--json"], "Missing argument 'PROJECT'"),
